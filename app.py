@@ -7,32 +7,42 @@ import json
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Idaho Wildfire Risk", layout="wide")
-st.title("Idaho Wildfire Risk Dashboard")
+st.title("🔥 Idaho Wildfire Risk Dashboard")
 st.caption("Summer 2026 seasonal forecast · County-level predictions")
 
-model = joblib.load('data/processed/wildfire_model.pkl')
-df = pd.read_csv('data/processed/fake_county_data.csv')
+# Load real model and data
+model = joblib.load('data/processed/real_wildfire_model.pkl')
+master = pd.read_csv('data/processed/master_county_level.csv')
+master = master.loc[:, ~master.columns.duplicated()].reset_index(drop=True)
 
-features = ['avg_temp_f', 'humidity_pct', 'wind_mph', 'precip_in',
-            'veg_density', 'elevation_ft', 'fire_history_count']
+features = ['avg_temp_month6', 'avg_temp_month7', 'avg_temp_month8',
+            'temp_anomaly_month6', 'temp_anomaly_month7', 'temp_anomaly_month8',
+            'precip_anomaly_month6', 'precip_anomaly_month7', 'precip_anomaly_month8']
 
-county_avg = df.groupby('county')[features].mean().reset_index()
-county_avg['fire_prob'] = model.predict_proba(county_avg[features])[:, 1]
-county_avg['risk_score'] = (county_avg['fire_prob'] * 100).round(1)
-county_avg['risk_level'] = county_avg['risk_score'].apply(
-    lambda x: 'Critical' if x >= 80 else 'High' if x >= 60 else 'Medium' if x >= 40 else 'Low'
+# Use most recent year with complete data per county
+latest = master.dropna(subset=features)
+latest = latest.sort_values('FIRE_YEAR').groupby('COUNTY').last().reset_index()
+latest = latest.loc[:, ~latest.columns.duplicated()].reset_index(drop=True)
+latest = latest.rename(columns={'COUNTY': 'county'})
+latest = latest.loc[:, ~latest.columns.duplicated()].reset_index(drop=True)
+
+# Predict fire probability
+latest['fire_prob'] = model.predict_proba(latest[features])[:, 1]
+latest['risk_score'] = (latest['fire_prob'] * 100).round(1)
+latest['risk_level'] = latest['risk_score'].apply(
+    lambda x: 'Critical' if x >= 75 else 'High' if x >= 50 else 'Medium' if x >= 25 else 'Low'
 )
-county_avg = county_avg.sort_values('risk_score', ascending=False)
+latest = latest.sort_values('risk_score', ascending=False).reset_index(drop=True)
 
 st.sidebar.header("Filters")
 risk_threshold = st.sidebar.slider("Minimum risk score", 0, 100, 0)
-filtered = county_avg[county_avg['risk_score'] >= risk_threshold]
+filtered = latest[latest['risk_score'] >= risk_threshold].reset_index(drop=True)
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Counties analyzed", len(county_avg))
-col2.metric("Critical risk (>80)", len(county_avg[county_avg['risk_score'] > 80]))
-col3.metric("High risk (>60)", len(county_avg[county_avg['risk_score'] > 60]))
-col4.metric("Avg risk score", f"{county_avg['risk_score'].mean():.0f}")
+col1.metric("Counties analyzed", len(latest))
+col2.metric("Critical risk (>75)", len(latest[latest['risk_score'] > 75]))
+col3.metric("High risk (>50)", len(latest[latest['risk_score'] > 50]))
+col4.metric("Avg risk score", f"{latest['risk_score'].mean():.0f}")
 
 st.divider()
 
@@ -45,15 +55,14 @@ with col_left:
         idaho_geo = json.load(f)
 
     risk_dict = dict(zip(filtered['county'], filtered['risk_score']))
-    level_dict = dict(zip(filtered['county'], filtered['risk_level']))
 
     m = folium.Map(location=[44.5, -114.5], zoom_start=5)
 
     def get_color(county_name):
         score = risk_dict.get(county_name, 0)
-        if score >= 80: return '#E24B4A'
-        elif score >= 60: return '#D85A30'
-        elif score >= 40: return '#EF9F27'
+        if score >= 75: return '#E24B4A'
+        elif score >= 50: return '#D85A30'
+        elif score >= 25: return '#EF9F27'
         else: return '#639922'
 
     folium.GeoJson(
@@ -75,19 +84,26 @@ with col_left:
 
 with col_right:
     st.subheader("County Details")
-    selected = st.selectbox("Select a county", filtered['county'].tolist())
-    row = filtered[filtered['county'] == selected].iloc[0]
-    st.metric("Risk Score", f"{row['risk_score']}/100")
-    st.metric("Risk Level", row['risk_level'])
-    st.metric("Avg Temperature", f"{row['avg_temp_f']:.1f}°F")
-    st.metric("Avg Humidity", f"{row['humidity_pct']:.1f}%")
-    st.metric("Avg Precipitation", f"{row['precip_in']:.1f} in")
-    st.metric("Wind Speed", f"{row['wind_mph']:.1f} mph")
-
+    if len(filtered) == 0:
+        st.warning("No counties match this threshold. Lower the slider.")
+    else:
+        county_list = filtered['county'].drop_duplicates().values.tolist()
+        selected = st.selectbox("Select a county", county_list)
+        row = filtered[filtered['county'] == selected].iloc[0]
+        st.metric("Risk Score", f"{row['risk_score']}/100")
+        st.metric("Risk Level", row['risk_level'])
+        st.metric("Year of data", int(row['FIRE_YEAR']))
+        st.metric("Avg Temp June", f"{row['avg_temp_month6']:.1f}°F")
+        st.metric("Avg Temp July", f"{row['avg_temp_month7']:.1f}°F")
+        st.metric("Avg Temp August", f"{row['avg_temp_month8']:.1f}°F")
+        st.metric("Temp Anomaly July", f"{row['temp_anomaly_month7']:.1f}°F")
+        st.metric("Precip Anomaly Aug", f"{row['precip_anomaly_month8']:.2f} in")
+    
 st.divider()
 st.subheader("Full County Table")
-st.dataframe(filtered[['county', 'risk_score', 'risk_level', 'avg_temp_f',
-                        'humidity_pct', 'precip_in', 'wind_mph']].reset_index(drop=True),
+st.dataframe(filtered[['county', 'risk_score', 'risk_level', 'FIRE_YEAR',
+                        'avg_temp_month7', 'temp_anomaly_month7',
+                        'precip_anomaly_month8']].reset_index(drop=True),
              use_container_width=True)
 
-st.caption("Model: Random Forest · Trained on 2005–2021 · Validated on 2022–2024 · Accuracy: 93.2%")
+st.caption("Model: Random Forest · Real NOAA + NIFC data · Accuracy: 64.2%")
