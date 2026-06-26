@@ -7,7 +7,7 @@ import json
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Idaho Wildfire Risk", layout="wide")
-st.title("🔥 Idaho Wildfire Risk Dashboard")
+st.title("Idaho Wildfire Risk Dashboard")
 st.caption("Summer 2026 seasonal forecast · County-level predictions")
 
 # Load real model and data

@@ -1,0 +1,13 @@
+# Data files - too large for GitHub
+data/raw/
+data/processed/
+*.pkl
+*.sqlite
+*.csv
+*.tiff
+*.geotiff
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store
