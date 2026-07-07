@@ -5,28 +5,28 @@ import joblib
 import folium
 import json
 from streamlit_folium import st_folium
+from sklearn.preprocessing import LabelEncoder
 
 st.set_page_config(page_title="Idaho Wildfire Risk", layout="wide")
 st.title("Idaho Wildfire Risk Dashboard")
 st.caption("Summer 2026 seasonal forecast · County-level predictions")
 
-# Load real model and data
-model = joblib.load('data/processed/real_wildfire_model.pkl')
+model = joblib.load('data/processed/model_A_janmay.pkl')
+features = joblib.load('data/processed/model_A_features.pkl')
+
 master = pd.read_csv('data/processed/master_county_level.csv')
+master.columns = pd.Index(master.columns.tolist())
 master = master.loc[:, ~master.columns.duplicated()].reset_index(drop=True)
 
-features = ['avg_temp_month6', 'avg_temp_month7', 'avg_temp_month8',
-            'temp_anomaly_month6', 'temp_anomaly_month7', 'temp_anomaly_month8',
-            'precip_anomaly_month6', 'precip_anomaly_month7', 'precip_anomaly_month8']
+le = LabelEncoder()
+master['county_id'] = le.fit_transform(master['COUNTY'])
 
-# Use most recent year with complete data per county
 latest = master.dropna(subset=features)
 latest = latest.sort_values('FIRE_YEAR').groupby('COUNTY').last().reset_index()
+latest.columns = pd.Index(latest.columns.tolist())
 latest = latest.loc[:, ~latest.columns.duplicated()].reset_index(drop=True)
 latest = latest.rename(columns={'COUNTY': 'county'})
-latest = latest.loc[:, ~latest.columns.duplicated()].reset_index(drop=True)
 
-# Predict fire probability
 latest['fire_prob'] = model.predict_proba(latest[features])[:, 1]
 latest['risk_score'] = (latest['fire_prob'] * 100).round(1)
 latest['risk_level'] = latest['risk_score'].apply(
@@ -36,7 +36,7 @@ latest = latest.sort_values('risk_score', ascending=False).reset_index(drop=True
 
 st.sidebar.header("Filters")
 risk_threshold = st.sidebar.slider("Minimum risk score", 0, 100, 0)
-filtered = latest[latest['risk_score'] >= risk_threshold].reset_index(drop=True)
+filtered = latest[latest['risk_score'] >= risk_threshold].copy().reset_index(drop=True)
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Counties analyzed", len(latest))
@@ -89,21 +89,21 @@ with col_right:
     else:
         county_list = filtered['county'].drop_duplicates().values.tolist()
         selected = st.selectbox("Select a county", county_list)
-        row = filtered[filtered['county'] == selected].iloc[0]
+        county_data = filtered[filtered['county'] == selected].copy().reset_index(drop=True)
+        row = county_data.iloc[0]
         st.metric("Risk Score", f"{row['risk_score']}/100")
         st.metric("Risk Level", row['risk_level'])
         st.metric("Year of data", int(row['FIRE_YEAR']))
-        st.metric("Avg Temp June", f"{row['avg_temp_month6']:.1f}°F")
-        st.metric("Avg Temp July", f"{row['avg_temp_month7']:.1f}°F")
-        st.metric("Avg Temp August", f"{row['avg_temp_month8']:.1f}°F")
-        st.metric("Temp Anomaly July", f"{row['temp_anomaly_month7']:.1f}°F")
-        st.metric("Precip Anomaly Aug", f"{row['precip_anomaly_month8']:.2f} in")
-    
+        st.metric("Avg Temp Jan", f"{row['avg_temp_month1']:.1f}°F")
+        st.metric("Avg Temp March", f"{row['avg_temp_month3']:.1f}°F")
+        st.metric("Avg Temp May", f"{row['avg_temp_month5']:.1f}°F")
+        st.metric("Precip Anomaly Jan", f"{row['precip_anomaly_month1']:.2f} in")
+        st.metric("Snow Anomaly Jan", f"{row['snow_anomaly_month1']:.2f} in")
+
 st.divider()
 st.subheader("Full County Table")
-st.dataframe(filtered[['county', 'risk_score', 'risk_level', 'FIRE_YEAR',
-                        'avg_temp_month7', 'temp_anomaly_month7',
-                        'precip_anomaly_month8']].reset_index(drop=True),
-             use_container_width=True)
+display_cols = ['county', 'risk_score', 'risk_level', 'FIRE_YEAR',
+                'avg_temp_month1', 'avg_temp_month3', 'precip_anomaly_month3']
+st.dataframe(filtered[display_cols].reset_index(drop=True), use_container_width=True)
 
-st.caption("Model: Random Forest · Real NOAA + NIFC data · Accuracy: 64.2%")
+st.caption("Model: Random Forest · Jan-May features · Threshold 0.2 · Accuracy: 59.6% (>1000 acres) | 84.9% (>10000 acres)")
