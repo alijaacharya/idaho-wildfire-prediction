@@ -1,0 +1,8 @@
+month_range,recall,precision,fires_caught,total_fires,false_alarms,records
+Jan-Mar,85.3,41.8,209,245,291,705
+Jan-Apr,85.7,42.5,210,245,284,705
+Jan-May,86.1,42.5,211,245,286,705
+Jan-Jun,87.6,42.9,212,242,282,702
+Jan-Jul,88.0,44.4,212,241,265,697
+Jan-Aug,83.8,44.3,201,240,253,694
+Jun-Aug,85.0,43.3,204,240,267,694
